@@ -1,10 +1,9 @@
 // A small static file server for developing NusaData locally (Node 22,
 // standard library only). `node serve.ts` serves the app/ folder at
-// http://localhost:8080; pass `--port <n>` for another port. It answers
-// with the content types a browser needs for HTML, CSS, ES modules and
-// images, and refuses paths that escape app/. It is a development
-// convenience only — the site itself needs no server beyond any static
-// file host.
+// http://localhost:8080; pass `--port <n>` for another port. It answers with
+// the content types a browser needs for HTML, CSS, ES modules and images,
+// and refuses any path that escapes app/. It is a development convenience
+// only — the site itself needs no server beyond any static file host.
 
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -12,12 +11,12 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const appRoot = resolve(fileURLToPath(new URL('./app', import.meta.url)));
-const argv = process.argv.slice(2);
-const portFlag = argv.indexOf('--port');
-const wanted = portFlag === -1 ? 8080 : Number(argv[portFlag + 1]);
-const port = Number.isInteger(wanted) && wanted > 0 && wanted < 65536 ? wanted : 8080;
+const args = process.argv.slice(2);
+const flagAt = args.indexOf('--port');
+const asked = flagAt === -1 ? 8080 : Number(args[flagAt + 1]);
+const port = Number.isInteger(asked) && asked > 0 && asked < 65536 ? asked : 8080;
 
-const TYPES = {
+const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -54,7 +53,7 @@ const server = createServer((req, res) => {
     return;
   }
   res.writeHead(200, {
-    'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
     'content-length': info.size,
     'cache-control': 'no-store',
   });

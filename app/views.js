@@ -1,49 +1,53 @@
-// Page renderers for NusaData. Each function returns the HTML for one hash
-// route; main.js puts it into <main> and wires the controls afterwards.
-// Views: overview (headline cards and featured charts), the searchable
+// Page renderers for NusaData. Every function returns the HTML for one hash
+// route; main.js drops it into <main> and wires that view's controls after.
+// Routes: overview (headline cards plus two featured charts), the searchable
 // indicator index, one detail page per indicator, the trend explorer, the
 // province comparison, and the about/methodology page.
 
-import { SITE, INDICATORS, CATEGORIES, PROVINCES, PUBLISHERS } from './data.js';
-import { lineChart, sparkline, barChart, formatValue, formatDelta, PALETTE } from './charts.js';
+import { META, INDICATORS, THEMES, PROVINCES, PUBLISHERS } from './data.js';
+import { lineChart, sparkline, barChart, fmt, changeText, THEME_COLORS } from './charts.js';
 
-export function indicatorById(id) {
+export function findIndicator(id) {
   return INDICATORS.find((i) => i.id === id) || INDICATORS[0];
 }
 
-function colorFor(ind) {
-  return PALETTE[CATEGORIES.indexOf(ind.category) % PALETTE.length];
+function colorOf(ind) {
+  return THEME_COLORS[THEMES.indexOf(ind.theme) % THEME_COLORS.length];
 }
 
-function card(ind) {
-  const last = ind.series[ind.series.length - 1];
-  return `<a class="card" href="#/indicator/${ind.id}" data-name="${ind.name.toLowerCase()}" data-cat="${ind.category}">
-    <span class="card-cat">${ind.category}</span>
-    <span class="card-name">${ind.name}</span>
-    <span class="card-value">${formatValue(ind.latest, ind.decimals)}<small> ${ind.unit.split(',')[0]}</small></span>
-    <span class="card-meta">${ind.latestPeriod} · ${ind.source}</span>
-    ${sparkline(ind.series, colorFor(ind))}
-    <span class="card-delta">${formatDelta(ind)} · latest year ${last[0]}: ${formatValue(last[1], ind.decimals)}</span>
+function shortUnit(ind) {
+  return ind.unit.split(',')[0];
+}
+
+function indicatorCard(ind) {
+  const last = ind.points[ind.points.length - 1];
+  return `<a class="card" href="#/indicator/${ind.id}" data-name="${ind.title.toLowerCase()}" data-cat="${ind.theme}">
+    <span class="card-cat">${ind.theme}</span>
+    <span class="card-name">${ind.title}</span>
+    <span class="card-value">${fmt(ind.latest, ind.places)}<small> ${shortUnit(ind)}</small></span>
+    <span class="card-meta">${ind.period} · ${ind.source}</span>
+    ${sparkline(ind.points, colorOf(ind))}
+    <span class="card-delta">${changeText(ind)} · latest year ${last[0]}: ${fmt(last[1], ind.places)}</span>
   </a>`;
 }
 
-export function overviewView() {
-  const featured = ['gdp-growth', 'population'].map(indicatorById);
-  const cards = INDICATORS.map(card).join('');
+export function overviewPage() {
+  const featured = ['gdp-growth', 'population'].map(findIndicator);
+  const cards = INDICATORS.map(indicatorCard).join('');
   const charts = featured
     .map(
       (ind) => `<section class="panel">
-        <h2>${ind.name} <span class="panel-unit">${ind.unit}</span></h2>
-        ${lineChart([{ points: ind.series, color: colorFor(ind) }], { decimals: ind.decimals, aria: `${ind.name} trend chart` })}
-        <p class="src">Source: ${ind.source}. ${ind.definition} <a href="#/indicator/${ind.id}">Full series and method →</a></p>
+        <h2>${ind.title} <span class="panel-unit">${ind.unit}</span></h2>
+        ${lineChart([{ points: ind.points, color: colorOf(ind) }], { places: ind.places, aria: `${ind.title} trend chart` })}
+        <p class="src">Source: ${ind.source}. ${ind.what} <a href="#/indicator/${ind.id}">Full series and method →</a></p>
       </section>`,
     )
     .join('');
   return `
   <section class="hero">
-    <p class="hero-kicker">${SITE.country} · official statistics, one page</p>
-    <h1>${SITE.tagline}</h1>
-    <p class="hero-blurb">${SITE.blurb}</p>
+    <p class="hero-kicker">${META.country} · official statistics, one page</p>
+    <h1>${META.tagline}</h1>
+    <p class="hero-blurb">${META.intro}</p>
     <div class="hero-stats">
       <div><strong>284.4 million</strong><span>people, mid-2025 (BPS)</span></div>
       <div><strong>US$1.40 trillion</strong><span>GDP, 2024 (World Bank)</span></div>
@@ -65,48 +69,48 @@ export function overviewView() {
   </section>`;
 }
 
-export function indicatorsView() {
-  const chips = ['All', ...CATEGORIES]
+export function indicatorsPage() {
+  const chips = ['All', ...THEMES]
     .map((c) => `<button class="chip${c === 'All' ? ' on' : ''}" data-chip="${c}">${c}</button>`)
     .join('');
   return `
   <h1>Indicators</h1>
-  <p class="lede">${INDICATORS.length} headline series across ${CATEGORIES.length} themes. Search by name, or filter by theme; open any card for the full series, a data table and the method behind it.</p>
+  <p class="lede">${INDICATORS.length} headline series across ${THEMES.length} themes. Search by name, or filter by theme; open any card for the full series, a data table and the method behind it.</p>
   <div class="tools">
     <input id="q" type="search" placeholder="Search indicators — try “poverty” or “exports”" aria-label="Search indicators">
     <div class="chips">${chips}</div>
   </div>
   <p id="noresult" class="noresult" hidden>No indicator matches that search. Try a shorter word, or clear the theme filter.</p>
-  <div class="grid" id="cards">${INDICATORS.map(card).join('')}</div>`;
+  <div class="grid" id="cards">${INDICATORS.map(indicatorCard).join('')}</div>`;
 }
 
-export function indicatorView(id) {
-  const ind = indicatorById(id);
-  const rows = [...ind.series]
+export function indicatorPage(id) {
+  const ind = findIndicator(id);
+  const rows = [...ind.points]
     .reverse()
-    .map(([y, v]) => `<tr><td>${y}</td><td>${formatValue(v, ind.decimals)}</td></tr>`)
+    .map(([y, v]) => `<tr><td>${y}</td><td>${fmt(v, ind.places)}</td></tr>`)
     .join('');
-  const values = ind.series.map((p) => p[1]);
+  const values = ind.points.map((p) => p[1]);
   const hi = Math.max(...values);
   const lo = Math.min(...values);
-  const hiYear = ind.series[values.indexOf(hi)][0];
-  const loYear = ind.series[values.indexOf(lo)][0];
-  const others = INDICATORS.filter((i) => i.category === ind.category && i.id !== ind.id)
-    .map((i) => `<a href="#/indicator/${i.id}">${i.name}</a>`)
+  const hiYear = ind.points[values.indexOf(hi)][0];
+  const loYear = ind.points[values.indexOf(lo)][0];
+  const siblings = INDICATORS.filter((i) => i.theme === ind.theme && i.id !== ind.id)
+    .map((i) => `<a href="#/indicator/${i.id}">${i.title}</a>`)
     .join(' · ');
   return `
-  <p class="crumb"><a href="#/indicators">← All indicators</a> · ${ind.category}</p>
-  <h1>${ind.name}</h1>
-  <p class="lede">${ind.definition}</p>
+  <p class="crumb"><a href="#/indicators">← All indicators</a> · ${ind.theme}</p>
+  <h1>${ind.title}</h1>
+  <p class="lede">${ind.what}</p>
   <div class="stat-strip">
-    <div><span>Latest</span><strong>${formatValue(ind.latest, ind.decimals)}</strong><span>${ind.unit}</span></div>
-    <div><span>Period</span><strong class="small">${ind.latestPeriod}</strong><span>published figure</span></div>
-    <div><span>Highest in series</span><strong>${formatValue(hi, ind.decimals)}</strong><span>in ${hiYear}</span></div>
-    <div><span>Lowest in series</span><strong>${formatValue(lo, ind.decimals)}</strong><span>in ${loYear}</span></div>
+    <div><span>Latest</span><strong>${fmt(ind.latest, ind.places)}</strong><span>${ind.unit}</span></div>
+    <div><span>Period</span><strong class="small">${ind.period}</strong><span>published figure</span></div>
+    <div><span>Highest in series</span><strong>${fmt(hi, ind.places)}</strong><span>in ${hiYear}</span></div>
+    <div><span>Lowest in series</span><strong>${fmt(lo, ind.places)}</strong><span>in ${loYear}</span></div>
   </div>
   <section class="panel">
-    <h2>Trend, ${ind.series[0][0]}–${ind.series[ind.series.length - 1][0]} <span class="panel-unit">${ind.unit}</span></h2>
-    ${lineChart([{ points: ind.series, color: colorFor(ind) }], { decimals: ind.decimals, height: 320, aria: `${ind.name} chart` })}
+    <h2>Trend, ${ind.points[0][0]}–${ind.points[ind.points.length - 1][0]} <span class="panel-unit">${ind.unit}</span></h2>
+    ${lineChart([{ points: ind.points, color: colorOf(ind) }], { places: ind.places, height: 320, aria: `${ind.title} chart` })}
     <p class="src">Source: ${ind.source}. Hover or tap a point for its exact value.</p>
   </section>
   <div class="two-col">
@@ -116,36 +120,36 @@ export function indicatorView(id) {
     </section>
     <section class="panel">
       <h2>How it is compiled</h2>
-      <p>${ind.method}</p>
+      <p>${ind.how}</p>
       <h3>What to watch</h3>
-      <p>${formatDelta(ind)} over the period shown. Figures are as published by ${ind.source};
+      <p>${changeText(ind)} over the period shown. Figures are as published by ${ind.source};
       annual values can be revised in later releases, and this page follows the release
-      current at ${SITE.updated}.</p>
-      ${others ? `<h3>More in ${ind.category}</h3><p>${others}</p>` : ''}
+      current at ${META.snapshot}.</p>
+      ${siblings ? `<h3>More in ${ind.theme}</h3><p>${siblings}</p>` : ''}
     </section>
   </div>`;
 }
 
-export function trendsView(state) {
+export function trendsPage(state) {
   const options = (sel) =>
-    INDICATORS.map((i) => `<option value="${i.id}"${i.id === sel ? ' selected' : ''}>${i.name}</option>`).join('');
-  const a = indicatorById(state.a);
-  const b = indicatorById(state.b);
-  const inRange = (ind) => ind.series.filter(([y]) => y >= state.from);
-  const index = (pts) => pts.map(([y, v]) => [y, (v / pts[0][1]) * 100]);
+    INDICATORS.map((i) => `<option value="${i.id}"${i.id === sel ? ' selected' : ''}>${i.title}</option>`).join('');
+  const a = findIndicator(state.a);
+  const b = findIndicator(state.b);
+  const inRange = (ind) => ind.points.filter(([y]) => y >= state.from);
+  const indexed = (pts) => pts.map(([y, v]) => [y, (v / pts[0][1]) * 100]);
   const chart = lineChart(
     [
-      { points: index(inRange(a)), color: PALETTE[0], label: a.name },
-      { points: index(inRange(b)), color: PALETTE[1], label: b.name },
+      { points: indexed(inRange(a)), color: THEME_COLORS[0], label: a.title },
+      { points: indexed(inRange(b)), color: THEME_COLORS[1], label: b.title },
     ],
-    { decimals: 0, height: 320, aria: 'Indexed comparison chart' },
+    { places: 0, height: 320, aria: 'Indexed comparison chart' },
   );
   const years = inRange(a).map((p) => p[0]);
   const rows = years
     .map((y) => {
       const av = inRange(a).find((p) => p[0] === y);
       const bv = inRange(b).find((p) => p[0] === y);
-      return `<tr><td>${y}</td><td>${av ? formatValue(av[1], a.decimals) : '—'}</td><td>${bv ? formatValue(bv[1], b.decimals) : '—'}</td></tr>`;
+      return `<tr><td>${y}</td><td>${av ? fmt(av[1], a.places) : '—'}</td><td>${bv ? fmt(bv[1], b.places) : '—'}</td></tr>`;
     })
     .join('');
   return `
@@ -162,21 +166,21 @@ export function trendsView(state) {
     </div>
   </div>
   <section class="panel">
-    <h2>${a.name} vs ${b.name} <span class="panel-unit">index, first year shown = 100</span></h2>
+    <h2>${a.title} vs ${b.title} <span class="panel-unit">index, first year shown = 100</span></h2>
     ${chart}
-    <p class="src"><span class="key" style="background:${PALETTE[0]}"></span>${a.name} (${a.source}) &nbsp; <span class="key" style="background:${PALETTE[1]}"></span>${b.name} (${b.source})</p>
+    <p class="src"><span class="key" style="background:${THEME_COLORS[0]}"></span>${a.title} (${a.source}) &nbsp; <span class="key" style="background:${THEME_COLORS[1]}"></span>${b.title} (${b.source})</p>
   </section>
   <section class="panel">
     <h2>The values behind the chart</h2>
-    <table class="data"><thead><tr><th>Year</th><th>${a.name} (${a.unit})</th><th>${b.name} (${b.unit})</th></tr></thead><tbody>${rows}</tbody></table>
+    <table class="data"><thead><tr><th>Year</th><th>${a.title} (${a.unit})</th><th>${b.title} (${b.unit})</th></tr></thead><tbody>${rows}</tbody></table>
   </section>`;
 }
 
-export function provincesView() {
+export function provincesPage() {
   const total = PROVINCES.reduce((s, p) => s + p.pop, 0);
   const top = [...PROVINCES].sort((x, y) => y.pop - x.pop).slice(0, 10);
   const bars = barChart(
-    top.map((p) => ({ name: p.name, value: p.pop, note: `${formatValue(p.pop, 1)} m` })),
+    top.map((p) => ({ name: p.name, value: p.pop, note: `${fmt(p.pop, 1)} m` })),
     { aria: 'Ten most populous provinces' },
   );
   return `
@@ -188,7 +192,7 @@ export function provincesView() {
   <section class="panel">
     <h2>The ten most populous provinces <span class="panel-unit">million people, mid-2024</span></h2>
     ${bars}
-    <p class="src">Source: BPS mid-year population estimates, 2024. The 38 rounded figures sum to ${formatValue(total, 1)} million, matching the national mid-2024 estimate of 281.6 million up to rounding.</p>
+    <p class="src">Source: BPS mid-year population estimates, 2024. The 38 rounded figures sum to ${fmt(total, 1)} million, matching the national mid-2024 estimate of 281.6 million up to rounding.</p>
   </section>
   <div class="tools">
     <input id="pq" type="search" placeholder="Filter provinces — try “Kalimantan”" aria-label="Filter provinces">
@@ -210,19 +214,19 @@ export function provincesView() {
 export function provinceRows(list, total) {
   return list
     .map(
-      (p) => `<tr><td>${p.name}</td><td>${p.capital}</td><td class="num">${formatValue(p.pop, 1)}</td><td class="num">${formatValue((p.pop / total) * 100, 1)}</td></tr>`,
+      (p) => `<tr><td>${p.name}</td><td>${p.capital}</td><td class="num">${fmt(p.pop, 1)}</td><td class="num">${fmt((p.pop / total) * 100, 1)}</td></tr>`,
     )
     .join('');
 }
 
-export function aboutView() {
+export function aboutPage() {
   const sourceRows = INDICATORS.map(
-    (i) => `<tr><td>${i.name}</td><td>${formatValue(i.latest, i.decimals)} ${i.unit.split(',')[0]}</td><td>${i.latestPeriod}</td><td>${i.source}</td></tr>`,
+    (i) => `<tr><td>${i.title}</td><td>${fmt(i.latest, i.places)} ${shortUnit(i)}</td><td>${i.period}</td><td>${i.source}</td></tr>`,
   ).join('');
   const publishers = PUBLISHERS.map((p) => `<h3>${p.name}</h3><p>${p.role}</p>`).join('');
   return `
   <h1>About &amp; methods</h1>
-  <p class="lede">${SITE.name} is an independent reading site for Indonesia\u2019s official
+  <p class="lede">${META.siteName} is an independent reading site for Indonesia\u2019s official
   statistics. It is not BPS and it does not publish new statistics: it re-presents the
   headline series a citizen, student or investor most often looks up, with the publisher
   and period of every figure kept attached to it.</p>
@@ -237,7 +241,7 @@ export function aboutView() {
     is the August Sakernas round, and poverty and the Gini ratio are the March Susenas
     round. The period is printed beside every figure rather than buried in a footnote.</p>
     <p><strong>Revisions.</strong> Official figures are revised. Values here are those in
-    the releases current at ${SITE.updated}; a later BPS or World Bank release may restate
+    the releases current at ${META.snapshot}; a later BPS or World Bank release may restate
     a recent year by a small amount.</p>
     <p><strong>Rounding.</strong> Province populations are rounded to one decimal of a
     million, so their shares are approximate and their sum differs slightly from the
