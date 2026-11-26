@@ -1,140 +1,114 @@
-// Hand-built SVG charts for NusaData. No chart library: each chart is a
-// string of SVG assembled from [year, value] pairs. Three shapes — a full
-// line chart with axes for detail pages, a compact sparkline for cards,
-// and horizontal bars for the province ranking — plus the shared number
-// formatting used by every view.
+// Hand-built SVG charts. No library: a chart is a string of SVG the views
+// drop into the page, so it costs no extra request and prints crisply at
+// any size. Three shapes are needed: a full line chart with axes for the
+// detail page, a small sparkline for cards, and horizontal bars for the
+// province ranking.
 
-export function fmt(value, places) {
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: places,
-    maximumFractionDigits: places,
-  });
+const INK = '#17352e';
+const FAINT = '#8aa39b';
+const ACCENT = '#d95d28';
+const GRID = '#ddd5c3';
+
+function niceCeil(value) {
+  if (value <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(value)));
+  const unit = value / pow;
+  const step = unit <= 1 ? 1 : unit <= 2 ? 2 : unit <= 2.5 ? 2.5 : unit <= 5 ? 5 : 10;
+  return step * pow;
 }
 
-// How much an indicator moved across its whole series, in words.
-export function changeText(ind) {
-  const first = ind.points[0];
-  const last = ind.points[ind.points.length - 1];
-  const diff = last[1] - first[1];
-  const sign = diff > 0 ? '+' : '';
-  return `${sign}${fmt(diff, ind.places)} since ${first[0]}`;
+function niceFloor(value) {
+  return -niceCeil(-value);
 }
 
-// Pick a display range for a set of series: pad a little, pull the bottom
-// to zero when the series comes close to it, and always include zero when
-// a series crosses it (real GDP growth went negative in 2020).
-function displayRange(allPoints) {
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const pts of allPoints) {
-    for (const [, v] of pts) {
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
-    }
-  }
-  if (lo > 0 && lo - (hi - lo) * 0.25 < 0) lo = 0;
-  if (hi < 0) hi = 0;
-  if (lo === hi) { lo -= 1; hi += 1; }
+// Full line chart. Points are [year, value] pairs; options may set a
+// height, the number formatting decimals, and whether the y axis is
+// allowed to start away from zero (right for ratios and life expectancy,
+// wrong for counts of money or people).
+export function lineChart(points, options = {}) {
+  const width = 720;
+  const height = options.height || 300;
+  const decimals = options.decimals ?? 1;
+  const padL = 58;
+  const padR = 16;
+  const padT = 14;
+  const padB = 30;
+  const values = points.map((p) => p[1]);
+  let lo = Math.min(...values);
+  let hi = Math.max(...values);
+  if (options.zeroBase !== false && lo >= 0) lo = 0;
+  if (lo === hi) { hi = lo + 1; }
   const span = hi - lo;
-  const padTop = span * 0.12;
-  const padBottom = lo < 0 ? padTop : (lo > 0 ? span * 0.05 : 0);
-  return { lo: lo - padBottom, hi: hi + padTop };
-}
+  lo -= span * 0.06;
+  hi += span * 0.1;
+  lo = niceFloor(lo);
+  hi = niceCeil(hi);
+  const x = (i) => padL + (i / (points.length - 1)) * (width - padL - padR);
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (height - padT - padB);
 
-function gridTicks(lo, hi, count) {
-  const out = [];
-  for (let i = 0; i <= count; i++) out.push(lo + ((hi - lo) * i) / count);
-  return out;
-}
-
-// A full line chart. `series` is [{ points, color, label }]. Draws
-// gridlines with value labels, first/last year labels, a zero line when the
-// range crosses it, dots with hover titles, and — for a single series — a
-// soft area fill and the final value printed beside the last point.
-export function lineChart(series, opts = {}) {
-  const w = opts.width || 720;
-  const h = opts.height || 300;
-  const places = opts.places ?? 1;
-  const left = 56;
-  const right = series.length > 1 ? 16 : 64;
-  const top = 14;
-  const bottom = 26;
-  const plotW = w - left - right;
-  const plotH = h - top - bottom;
-  const { lo, hi } = displayRange(series.map((s) => s.points));
-  const years = series[0].points.map((p) => p[0]);
-  const firstYear = Math.min(...years);
-  const lastYear = Math.max(...years);
-  const xFor = (yr) => left + ((yr - firstYear) / Math.max(1, lastYear - firstYear)) * plotW;
-  const yFor = (v) => top + (1 - (v - lo) / (hi - lo)) * plotH;
-
-  let svg = `<svg viewBox="0 0 ${w} ${h}" role="img" class="chart" aria-label="${opts.aria || 'line chart'}">`;
-  for (const t of gridTicks(lo, hi, 4)) {
-    const y = yFor(t);
-    svg += `<line x1="${left}" y1="${y.toFixed(1)}" x2="${w - right}" y2="${y.toFixed(1)}" class="grid"/>`;
-    svg += `<text x="${left - 8}" y="${(y + 4).toFixed(1)}" class="tick" text-anchor="end">${fmt(t, places)}</text>`;
+  const ticks = [];
+  for (let t = 0; t <= 4; t++) {
+    const v = lo + ((hi - lo) * t) / 4;
+    ticks.push(
+      `<line x1="${padL}" y1="${y(v)}" x2="${width - padR}" y2="${y(v)}" stroke="${GRID}" stroke-width="1"/>` +
+      `<text x="${padL - 8}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="${FAINT}">${v.toFixed(decimals)}</text>`,
+    );
   }
-  if (lo < 0 && hi > 0) {
-    svg += `<line x1="${left}" y1="${yFor(0).toFixed(1)}" x2="${w - right}" y2="${yFor(0).toFixed(1)}" class="zero"/>`;
-  }
-  svg += `<text x="${left}" y="${h - 6}" class="tick">${firstYear}</text>`;
-  svg += `<text x="${w - right}" y="${h - 6}" class="tick" text-anchor="end">${lastYear}</text>`;
-
-  for (const s of series) {
-    const pts = s.points.map(([yr, v]) => `${xFor(yr).toFixed(1)},${yFor(v).toFixed(1)}`).join(' ');
-    if (series.length === 1) {
-      const base = yFor(Math.max(0, lo));
-      const last = s.points[s.points.length - 1];
-      svg += `<polygon points="${left},${base.toFixed(1)} ${pts} ${xFor(last[0]).toFixed(1)},${base.toFixed(1)}" class="area" fill="${s.color}"/>`;
-    }
-    svg += `<polyline points="${pts}" class="line" stroke="${s.color}"/>`;
-    for (const [yr, v] of s.points) {
-      svg += `<circle cx="${xFor(yr).toFixed(1)}" cy="${yFor(v).toFixed(1)}" r="3" class="dot" fill="${s.color}"><title>${yr}: ${fmt(v, places)}</title></circle>`;
-    }
-    const last = s.points[s.points.length - 1];
-    if (series.length === 1) {
-      svg += `<text x="${(xFor(last[0]) + 8).toFixed(1)}" y="${(yFor(last[1]) + 4).toFixed(1)}" class="endlabel" fill="${s.color}">${fmt(last[1], places)}</text>`;
-    }
-    // Multi-series charts get no end labels: the names are too long to fit
-    // beside the last point, and the view prints a colour legend instead.
-  }
-  svg += '</svg>';
-  return svg;
-}
-
-// A small sparkline for indicator cards: a bare line with a dot on the end.
-export function sparkline(points, color) {
-  const w = 120;
-  const h = 36;
-  const { lo, hi } = displayRange([points]);
-  const firstYear = points[0][0];
-  const lastYear = points[points.length - 1][0];
-  const xFor = (yr) => 2 + ((yr - firstYear) / Math.max(1, lastYear - firstYear)) * (w - 6);
-  const yFor = (v) => 3 + (1 - (v - lo) / (hi - lo)) * (h - 8);
-  const pts = points.map(([yr, v]) => `${xFor(yr).toFixed(1)},${yFor(v).toFixed(1)}`).join(' ');
+  const zeroLine = lo < 0 && hi > 0
+    ? `<line x1="${padL}" y1="${y(0)}" x2="${width - padR}" y2="${y(0)}" stroke="${INK}" stroke-width="1.2"/>`
+    : '';
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+  const area = `${path} L${x(points.length - 1).toFixed(1)},${y(Math.max(lo, 0)).toFixed(1)} L${x(0).toFixed(1)},${y(Math.max(lo, 0)).toFixed(1)} Z`;
+  const dots = points.map((p, i) =>
+    `<circle cx="${x(i)}" cy="${y(p[1])}" r="3.4" fill="${ACCENT}"><title>${p[0]}: ${p[1]}</title></circle>`,
+  ).join('');
+  const yearLabels = points.map((p, i) =>
+    i % Math.ceil(points.length / 6) === 0 || i === points.length - 1
+      ? `<text x="${x(i)}" y="${height - 8}" text-anchor="middle" font-size="11" fill="${FAINT}">${p[0]}</text>`
+      : '',
+  ).join('');
+  const first = points[0];
   const last = points[points.length - 1];
-  return `<svg viewBox="0 0 ${w} ${h}" class="spark" aria-hidden="true"><polyline points="${pts}" class="sparkline" stroke="${color}"/><circle cx="${xFor(last[0]).toFixed(1)}" cy="${yFor(last[1]).toFixed(1)}" r="3" fill="${color}"/></svg>`;
+
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Line chart from ${first[0]} to ${last[0]}" class="chart">` +
+    ticks.join('') + zeroLine +
+    `<path d="${area}" fill="${ACCENT}" opacity="0.10"/>` +
+    `<path d="${path}" fill="none" stroke="${ACCENT}" stroke-width="2.4" stroke-linejoin="round"/>` +
+    dots + yearLabels + `</svg>`;
 }
 
-// Horizontal bars for the province ranking. Rows are { name, value, note }.
-// Labels are kept large because the chart is drawn at desktop width and
-// scaled down on a phone, where small text would disappear.
-export function barChart(rows, opts = {}) {
-  const w = opts.width || 720;
-  const rowH = 36;
-  const h = rows.length * rowH + 8;
-  const labelW = 205;
+// Tiny trend line for a card: no axes, just the shape and the end point.
+export function sparkline(points) {
+  const width = 120;
+  const height = 34;
+  const values = points.map((p) => p[1]);
+  let lo = Math.min(...values);
+  let hi = Math.max(...values);
+  if (lo === hi) { hi = lo + 1; }
+  const x = (i) => 3 + (i / (points.length - 1)) * (width - 8);
+  const y = (v) => 4 + (1 - (v - lo) / (hi - lo)) * (height - 9);
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+  const last = points[points.length - 1];
+  return `<svg viewBox="0 0 ${width} ${height}" aria-hidden="true" class="spark">` +
+    `<path d="${path}" fill="none" stroke="${ACCENT}" stroke-width="2" stroke-linejoin="round"/>` +
+    `<circle cx="${x(points.length - 1)}" cy="${y(last[1])}" r="3" fill="${ACCENT}"/></svg>`;
+}
+
+// Horizontal bars for the province ranking: name, bar, value.
+export function barChart(rows, options = {}) {
+  const width = 720;
+  const rowH = 30;
+  const height = rows.length * rowH + 8;
+  const labelW = 168;
+  const valueW = 92;
   const max = Math.max(...rows.map((r) => r.value));
-  let svg = `<svg viewBox="0 0 ${w} ${h}" role="img" class="chart" aria-label="${opts.aria || 'bar chart'}">`;
-  rows.forEach((r, i) => {
-    const y = 6 + i * rowH;
-    const barW = Math.max(2, (r.value / max) * (w - labelW - 76));
-    svg += `<text x="${labelW - 10}" y="${y + 19}" class="barlabel" text-anchor="end">${r.name}</text>`;
-    svg += `<rect x="${labelW}" y="${y + 5}" width="${barW.toFixed(1)}" height="20" class="bar" fill="${opts.color || '#0f5e6b'}"/>`;
-    svg += `<text x="${(labelW + barW + 8).toFixed(1)}" y="${y + 19}" class="barvalue">${r.note}</text>`;
-  });
-  svg += '</svg>';
-  return svg;
+  const barW = (v) => Math.max(2, (v / max) * (width - labelW - valueW));
+  const fmt = options.format || ((v) => v);
+  const bars = rows.map((r, i) => {
+    const top = 6 + i * rowH;
+    return `<text x="0" y="${top + 17}" font-size="13" fill="${INK}">${r.name}</text>` +
+      `<rect x="${labelW}" y="${top + 3}" width="${barW(r.value).toFixed(1)}" height="17" rx="3" fill="${ACCENT}" opacity="${(1 - i * 0.055).toFixed(2)}"/>` +
+      `<text x="${labelW + barW(r.value) + 8}" y="${top + 17}" font-size="13" fill="${INK}">${fmt(r.value)}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Bar chart" class="chart">${bars}</svg>`;
 }
-
-export const THEME_COLORS = ['#0f5e6b', '#c0392b', '#b8860b', '#3d6e35', '#5b4a9e'];

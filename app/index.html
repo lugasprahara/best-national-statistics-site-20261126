@@ -1,29 +1,33 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NusaData — Indonesia in Numbers</title>
-<meta name="description" content="Indonesia's headline official statistics on one page: population, GDP, growth, inflation, jobs, poverty and all 38 provinces, with the source and year of every figure.">
+<meta name="description" content="The headline statistics of Indonesia — population, economy, prices, work and wellbeing — from BPS (Statistics Indonesia) and the World Bank, each figure with its source and period.">
 <link rel="stylesheet" href="style.css">
-<script type="module" src="main.js"></script>
 </head>
 <body>
-<header>
-  <a class="brand" href="#/"><span class="brand-mark">N</span> NusaData <span class="brand-sub">Indonesia in Numbers</span></a>
+<header class="site-head">
+  <a class="brand" href="#/">
+    <span class="brand-mark">N</span>
+    <span class="brand-text">NusaData<small>Indonesia in Numbers</small></span>
+  </a>
   <nav>
     <a href="#/">Overview</a>
     <a href="#/indicators">Indicators</a>
-    <a href="#/trends">Trends</a>
     <a href="#/provinces">Provinces</a>
     <a href="#/about">About &amp; methods</a>
   </nav>
 </header>
-<main id="app"></main>
-<footer>
-  <p><strong>NusaData</strong> re-presents published official statistics with their sources attached.
-  Figures: Badan Pusat Statistik (BPS) and the World Bank, World Development Indicators. Snapshot: November 2026.
-  This is an independent reading site, not an official publication — for legal and research use, consult the publishers.</p>
+<main id="app">
+  <noscript><p class="noresult">NusaData draws its charts with JavaScript; please enable it to explore the figures.</p></noscript>
+</main>
+<footer class="site-foot">
+  <p><strong>NusaData</strong> re-presents official statistics published by BPS — Statistics Indonesia
+  and the World Bank. It is an independent reading site, not an official publication of either.</p>
+  <p>Figures as published, November 2026. <a href="#/about">How to read them, and where each one comes from →</a></p>
 </footer>
+<script type="module" src="main.js"></script>
 </body>
 </html>

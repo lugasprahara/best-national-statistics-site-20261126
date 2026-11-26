@@ -1,22 +1,17 @@
-// A small static file server for developing NusaData locally (Node 22,
-// standard library only). `node serve.ts` serves the app/ folder at
-// http://localhost:8080; pass `--port <n>` for another port. It answers with
-// the content types a browser needs for HTML, CSS, ES modules and images,
-// and refuses any path that escapes app/. It is a development convenience
-// only — the site itself needs no server beyond any static file host.
+// A small static file server for looking at the site locally:
+//   node serve.ts            serves app/ at http://localhost:8080
+//   node serve.ts --port 9000
+// Standard library only; it serves files from the app/ folder beside this
+// file and nothing else.
 
-import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const appRoot = resolve(fileURLToPath(new URL('./app', import.meta.url)));
-const args = process.argv.slice(2);
-const flagAt = args.indexOf('--port');
-const asked = flagAt === -1 ? 8080 : Number(args[flagAt + 1]);
-const port = Number.isInteger(asked) && asked > 0 && asked < 65536 ? asked : 8080;
+const root = join(fileURLToPath(new URL('.', import.meta.url)), 'app');
 
-const MIME = {
+const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -26,40 +21,24 @@ const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
 };
 
-const server = createServer((req, res) => {
-  let path;
-  try {
-    path = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
-  } catch {
-    res.writeHead(400).end('bad request');
-    return;
-  }
-  if (path.endsWith('/')) path += 'index.html';
-  const file = resolve(join(appRoot, normalize(path)));
-  if (file !== appRoot && !file.startsWith(appRoot + sep)) {
-    res.writeHead(403).end('forbidden');
-    return;
-  }
-  let info;
-  try {
-    info = statSync(file);
-    if (!info.isFile()) throw new Error('directory');
-  } catch {
-    res.writeHead(404).end('not found');
-    return;
-  }
-  res.writeHead(200, {
-    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
-    'content-length': info.size,
-    'cache-control': 'no-store',
-  });
-  createReadStream(file).pipe(res);
-});
+const portArg = process.argv.indexOf('--port');
+const port = portArg >= 0 ? Number(process.argv[portArg + 1]) : 8080;
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`NusaData app/ served at http://localhost:${port}`);
+createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  let path = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
+  if (path === '/' || path === '\\') path = '/index.html';
+  const file = join(root, path);
+  if (!file.startsWith(root) || !existsSync(file) || !statSync(file).isFile()) {
+    res.writeHead(404, { 'content-type': 'text/plain' });
+    res.end('not found');
+    return;
+  }
+  res.writeHead(200, { 'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream' });
+  res.end(readFileSync(file));
+}).listen(port, () => {
+  console.log(`NusaData at http://localhost:${port}`);
 });

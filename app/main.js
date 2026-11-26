@@ -1,106 +1,143 @@
-// NusaData router and page controls. Hash routes keep the whole site in a
-// single page that works from any static server (and straight off disk):
-// #/ overview, #/indicators with search and theme filters,
-// #/indicator/<id> detail pages, #/trends the two-series explorer,
-// #/provinces the sortable province table, #/about sources and methods.
-// After each render the controls of that view are wired here; nothing on a
-// page is decorative — every button, filter and heading does what it says.
+// Router and control wiring. The site is one page with hash routes:
+//   #/                 overview
+//   #/indicators       searchable index of the 12 series
+//   #/indicator/<id>   one series: chart, table, method
+//   #/provinces        the 38 provinces, sortable
+//   #/about            sources and methods
+// Views render HTML strings; this file swaps them into <main> and then
+// wires whatever controls the new page carries.
 
-import { PROVINCES } from './data.js';
-import {
-  overviewPage,
-  indicatorsPage,
-  indicatorPage,
-  trendsPage,
-  provincesPage,
-  provinceRows,
-  aboutPage,
-} from './views.js';
+import { INDICATORS, PROVINCES } from './data.js';
+import { overviewView, indicatorsView, indicatorView, provincesView, aboutView, indicatorById, provinceRows } from './views.js';
+import { lineChart } from './charts.js';
 
-const mount = document.getElementById('app');
-const trendState = { a: 'internet', b: 'poverty', from: 2015 };
-let provinceState = { key: 'pop', dir: -1, query: '' };
+const main = document.getElementById('app');
+const TOTAL_POP = PROVINCES.reduce((s, p) => s + p.pop, 0);
 
-function show() {
-  const hash = location.hash || '#/';
-  const parts = hash.replace(/^#\//, '').split('/');
-  const page = parts[0] || '';
+function setNav(route) {
   document.querySelectorAll('nav a').forEach((a) => {
-    const target = a.getAttribute('href');
-    a.classList.toggle('on', target === `#/${page}` || (page === '' && target === '#/'));
+    const target = a.getAttribute('href').slice(1);
+    const active = target === route || (route.startsWith('/indicator') && target === '/indicators');
+    a.classList.toggle('on', active);
   });
-  if (page === '') mount.innerHTML = overviewPage();
-  else if (page === 'indicators') { mount.innerHTML = indicatorsPage(); bindIndicators(); }
-  else if (page === 'indicator') mount.innerHTML = indicatorPage(parts[1]);
-  else if (page === 'trends') { mount.innerHTML = trendsPage(trendState); bindTrends(); }
-  else if (page === 'provinces') { mount.innerHTML = provincesPage(); bindProvinces(); }
-  else if (page === 'about') mount.innerHTML = aboutPage();
-  else mount.innerHTML = overviewPage();
+}
+
+function wireIndicators() {
+  const input = document.getElementById('q');
+  const cards = [...document.querySelectorAll('#cards .card')];
+  let theme = 'All';
+  const apply = () => {
+    const q = input.value.trim().toLowerCase();
+    let visible = 0;
+    for (const el of cards) {
+      const ind = indicatorById(el.getAttribute('href').split('/').pop());
+      const show = (!q || ind.name.toLowerCase().includes(q)) && (theme === 'All' || ind.category === theme);
+      el.style.display = show ? '' : 'none';
+      if (show) visible++;
+    }
+    document.getElementById('noresult').hidden = visible > 0;
+  };
+  input.addEventListener('input', apply);
+  document.querySelectorAll('[data-chip]').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('[data-chip]').forEach((c) => c.classList.remove('on'));
+      chip.classList.add('on');
+      theme = chip.dataset.chip;
+      apply();
+    });
+  });
+}
+
+function wireIndicator(id) {
+  const ind = indicatorById(id);
+  const zeroBase = ind.id !== 'gini' && ind.id !== 'life-expectancy';
+  const csvBtn = document.getElementById('csv');
+  if (csvBtn) {
+    csvBtn.addEventListener('click', () => {
+      const lines = [`year,value (${ind.unit})`, ...ind.series.map(([y, v]) => `${y},${v}`)];
+      const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `nusadata-${ind.id}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+  document.querySelectorAll('[data-range]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-range]').forEach((b) => b.classList.remove('on'));
+      btn.classList.add('on');
+      const pts = btn.dataset.range === '5' ? ind.series.slice(-5) : ind.series;
+      document.getElementById('bigchart').innerHTML =
+        lineChart(pts, { decimals: ind.decimals, zeroBase, height: 320 });
+    });
+  });
+}
+
+function wireProvinces() {
+  const input = document.getElementById('pq');
+  const tbody = document.querySelector('#ptable tbody');
+  let region = 'All';
+  let sortKey = null;
+  let sortDir = 1;
+  const apply = () => {
+    const q = input.value.trim().toLowerCase();
+    let list = PROVINCES.filter((p) =>
+      (region === 'All' || p.region === region) &&
+      (!q || p.name.toLowerCase().includes(q) || p.capital.toLowerCase().includes(q)));
+    if (sortKey) {
+      list = [...list].sort((a, b) => {
+        const av = a[sortKey];
+        const bv = b[sortKey];
+        return (typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv))) * sortDir;
+      });
+    }
+    tbody.innerHTML = provinceRows(list, TOTAL_POP);
+  };
+  input.addEventListener('input', apply);
+  document.querySelectorAll('[data-region]').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('[data-region]').forEach((c) => c.classList.remove('on'));
+      chip.classList.add('on');
+      region = chip.dataset.region;
+      apply();
+    });
+  });
+  document.querySelectorAll('#ptable th[data-sort]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (sortKey === key) sortDir = -sortDir;
+      else { sortKey = key; sortDir = key === 'pop' ? -1 : 1; }
+      apply();
+    });
+  });
+}
+
+function render() {
+  const hash = location.hash.replace(/^#/, '') || '/';
+  const parts = hash.split('/').filter(Boolean);
+  let route = '/';
+  if (parts[0] === 'indicators') {
+    main.innerHTML = indicatorsView();
+    route = '/indicators';
+    wireIndicators();
+  } else if (parts[0] === 'indicator' && parts[1]) {
+    main.innerHTML = indicatorView(parts[1]);
+    route = `/indicator/${parts[1]}`;
+    wireIndicator(parts[1]);
+  } else if (parts[0] === 'provinces') {
+    main.innerHTML = provincesView();
+    route = '/provinces';
+    wireProvinces();
+  } else if (parts[0] === 'about') {
+    main.innerHTML = aboutView();
+    route = '/about';
+  } else {
+    main.innerHTML = overviewView();
+  }
+  setNav(route);
   window.scrollTo(0, 0);
 }
 
-function bindIndicators() {
-  const q = document.getElementById('q');
-  const cards = [...document.querySelectorAll('#cards .card')];
-  const none = document.getElementById('noresult');
-  let theme = 'All';
-  const apply = () => {
-    const needle = q.value.trim().toLowerCase();
-    let shown = 0;
-    for (const c of cards) {
-      const matchesText = c.dataset.name.includes(needle);
-      const matchesTheme = theme === 'All' || c.dataset.cat === theme;
-      c.hidden = !(matchesText && matchesTheme);
-      if (!c.hidden) shown++;
-    }
-    none.hidden = shown > 0;
-  };
-  q.addEventListener('input', apply);
-  document.querySelectorAll('[data-chip]').forEach((b) =>
-    b.addEventListener('click', () => {
-      theme = b.dataset.chip;
-      document.querySelectorAll('[data-chip]').forEach((x) => x.classList.toggle('on', x === b));
-      apply();
-    }),
-  );
-}
-
-function bindTrends() {
-  document.getElementById('sel-a').addEventListener('change', (e) => { trendState.a = e.target.value; show(); });
-  document.getElementById('sel-b').addEventListener('change', (e) => { trendState.b = e.target.value; show(); });
-  document.querySelectorAll('[data-range]').forEach((b) =>
-    b.addEventListener('click', () => { trendState.from = Number(b.dataset.range); show(); }),
-  );
-}
-
-function paintProvinces() {
-  const total = PROVINCES.reduce((s, p) => s + p.pop, 0);
-  const key = provinceState.key;
-  const valueOf = (p) => (key === 'share' ? p.pop / total : p[key]);
-  const list = PROVINCES.filter((p) => p.name.toLowerCase().includes(provinceState.query));
-  list.sort((x, y) => {
-    const xv = valueOf(x);
-    const yv = valueOf(y);
-    return (typeof xv === 'string' ? xv.localeCompare(yv) : xv - yv) * provinceState.dir;
-  });
-  document.querySelector('#ptable tbody').innerHTML = provinceRows(list, total);
-}
-
-function bindProvinces() {
-  paintProvinces();
-  document.getElementById('pq').addEventListener('input', (e) => {
-    provinceState.query = e.target.value.trim().toLowerCase();
-    paintProvinces();
-  });
-  document.querySelectorAll('#ptable th').forEach((th) =>
-    th.addEventListener('click', () => {
-      const key = th.dataset.sort;
-      if (provinceState.key === key) provinceState.dir *= -1;
-      else provinceState = { ...provinceState, key, dir: key === 'pop' || key === 'share' ? -1 : 1 };
-      paintProvinces();
-    }),
-  );
-}
-
-window.addEventListener('hashchange', show);
-show();
+window.addEventListener('hashchange', render);
+render();
